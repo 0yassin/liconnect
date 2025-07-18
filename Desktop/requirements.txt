@@ -1,0 +1,7 @@
+PySide6
+qrcode
+pyperclip
+Pillow
+python-socketio
+eventlet
+win10toast
