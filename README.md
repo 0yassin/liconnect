@@ -15,11 +15,6 @@ liconnect or light connect is a desktop and mobile app designed to link the two 
 
 ---
 
-## Tech Stack
-
-- **Frontend:** Expo react native for the mobile app, Python for the desktop app
-- **Connection:** Socket
-- **Backend:** Peer-to-peer via local network
-
+Note: this is not a finished project at all.
 ---
 
