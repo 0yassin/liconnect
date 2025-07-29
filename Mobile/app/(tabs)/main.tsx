@@ -1,38 +1,55 @@
-//#region
 // main.tsx
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import { useToast } from "react-native-toast-notifications";
+
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  Animated,
+} from 'react-native';
 import 'react-native-url-polyfill/auto';
 import { Socket } from 'socket.io-client';
 
-import Fileicon from '../../assets/images/file.svg';
-import ClipboardIcon from '../../assets/images/Paperclip.svg';
-import PlaceHolderIcon from '../../assets/images/placeholder.svg';
-import WifiIcon from '../../assets/images/wifi.svg';
+import Fileicon from '../../assets/images/file.tsx';
+import ClipboardIcon from '../../assets/images/Paperclip.tsx';
+import PlaceHolderIcon from '../../assets/images/placeholder.tsx';
+import WifiIcon from '../../assets/images/wifi.tsx';
 
-import { useConnection } from '../(tabs)/test';
+import { useConnection } from '../(tabs)/scan';
 
 export default function MainScreen() {
+  const toast = useToast();
   const { activeConnection } = useConnection();
   const [message, setMessage] = useState('');
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
+
+  const clipboardScale = useRef(new Animated.Value(1)).current;
+  const fileScale = useRef(new Animated.Value(1)).current;
+  const messageScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-  if (!activeConnection || !activeConnection.socket) {
-    socketRef.current?.disconnect();
-    socketRef.current = null;
-    setIsConnected(false);
-    return;
-  }
-  
-  
-  const socket = activeConnection.socket;
-  socketRef.current = socket;
+    if (!activeConnection || !activeConnection.socket) {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+      setIsConnected(false);
+      return;
+    }
+
+    const socket = activeConnection.socket;
+    socketRef.current = socket;
 
     socket.on('connect', () => {
       console.log('Socket connected');
@@ -49,66 +66,43 @@ export default function MainScreen() {
       setIsConnected(false);
     });
 
-    socket.on('message', (data: string) => {
-      // You can handle incoming messages here if needed
-      console.log('Received message:', data);
-    });
 
     socket.on('file-ack', (data: { status: string; filename: string }) => {
       console.log('File ACK:', data);
       if (data.status === 'received') {
-        Alert.alert('File Uploaded', `${data.filename} was saved on the server.`);
+        toast.show("File uploaded", {type:'success'})
       } else {
-        Alert.alert('Upload Failed', `Server responded with status: ${data.status}`);
+        toast.show(`Error uploading file ${data.status}`, {type:'danger'})
       }
     });
 
     return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off('connect_error');
-      socket.off('message');
-      socket.off('file-ack');
       socket.disconnect();
       socketRef.current = null;
       setIsConnected(false);
     };
   }, [activeConnection]);
 
-  const sendMessage = () => {
-    if (!message.trim()) {
-      return Alert.alert('Error', 'Please enter a message');
-    }
-    if (!socketRef.current?.connected) {
-      return Alert.alert('Error', 'Not connected to any server');
-    }
-
-    socketRef.current.emit('message', message);
-    setMessage('');
-  };
-
   const sendClipboard = async () => {
-    if (!activeConnection) {
-      return Alert.alert('Error', 'Not connected to any server');
-    }
+    if (!activeConnection || !socketRef.current?.connected) {
+      
+      toast.show(`Not connected to any server`, {type:'danger'})
 
-    if (!socketRef.current?.connected) {
-      return Alert.alert('Error', 'Not connected to any server');
     }
 
     const clipboardContent = await Clipboard.getStringAsync();
     if (!clipboardContent) {
-      return Alert.alert('Clipboard', 'Clipboard is empty');
+      return toast.show(`clipboard is empty`, {type:'danger'})
+
     }
 
-    socketRef.current.emit(
-      'message',
-      { type: 'clipboard', content: clipboardContent },
-      Alert.alert('clipboard sent successfully')
-    );
+    socketRef.current?.emit('message', { type: 'clipboard', content: clipboardContent }, () => {
+      toast.show(`clipboard sent successfully`, {type:'success'})
+
+    });
   };
 
-async function pickAndSendFile() {
+  async function pickAndSendFile() {
     if (Platform.OS === 'web') {
       return Alert.alert("File picking isn't available on web.");
     }
@@ -119,32 +113,30 @@ async function pickAndSendFile() {
         copyToCacheDirectory: true,
       });
 
-      // If user cancelled
-      if (result.canceled === true) {
+      if (result.canceled === true || !Array.isArray(result.assets) || result.assets.length === 0) {
         return;
-      }
-
-      // Ensure assets array exists
-      if (!Array.isArray(result.assets) || result.assets.length === 0) {
-        return Alert.alert('Error', 'No file selected.');
       }
 
       const asset = result.assets[0];
       const { uri, name, mimeType } = asset;
 
       if (typeof uri !== 'string' || typeof name !== 'string') {
-        return Alert.alert('Error', 'Invalid file data.');
+        return toast.show(`Invalid file data`, {type:'danger'})
+
       }
 
       await sendFile(uri, name, mimeType ?? 'application/octet-stream');
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to pick/send file: ' + error.message);
+      toast.show(`Failed to pick/send file: ${error.message}`, {type:'danger'})
+
     }
   }
 
   async function sendFile(uri: string, filename: string, mimeType: string) {
     if (!socketRef.current?.connected) {
-      return Alert.alert('Error', 'Not connected to any server');
+      
+      return toast.show(`Not connected to any server`, {type:'danger'})
+
     }
 
     try {
@@ -158,10 +150,40 @@ async function pickAndSendFile() {
         data: base64,
       });
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to read and send file: ' + error.message);
+            toast.show(`Failed to read and send file: ${error.message}`, {type:'danger'})
+
     }
   }
 
+  const sendModalMessage = () => {
+    if (!modalMessage.trim()) {
+      toast.show(`Please enter a message`, {type:'danger'})
+
+      return;
+    }
+    if (!socketRef.current?.connected) {
+      toast.show(`Not connected to any server`, {type:'danger'})
+
+      return;
+    }
+
+    socketRef.current.emit('message', { type: 'text', content: modalMessage });
+    setModalMessage('');
+    setModalVisible(false);
+  };
+
+  const animateIn = (anim: Animated.Value | Animated.ValueXY) =>
+    Animated.spring(anim, {
+      toValue: 0.96,
+      useNativeDriver: true,
+    }).start();
+
+  const animateOut = (anim: Animated.Value | Animated.ValueXY) =>
+    Animated.spring(anim, {
+      toValue: 1,
+      friction: 3,
+      useNativeDriver: true,
+    }).start();
 
   return (
     <View style={styles.container}>
@@ -170,20 +192,12 @@ async function pickAndSendFile() {
         <View style={styles.cardRow}>
           <View>
             <Text style={styles.cardTitle}>
-              {activeConnection
-                ? `Connected to ${activeConnection.name}`
-                : 'Not Connected'}
+              {activeConnection ? `Connected to ${activeConnection.name}` : 'Not Connected'}
             </Text>
             <View style={styles.cardDetails}>
+              <Text style={styles.cardSub}>{activeConnection ? activeConnection.ip : 'XXX.XXX.XX.XXX'}</Text>
               <Text style={styles.cardSub}>
-                {activeConnection ? activeConnection.ip : 'XXX.XXX.XX.XXX'}
-              </Text>
-              <Text style={styles.cardSub}>
-                {new Date().toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  second: '2-digit',
-                })}
+                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </Text>
             </View>
           </View>
@@ -192,41 +206,82 @@ async function pickAndSendFile() {
       </Pressable>
 
       {/* Clipboard */}
-      <Pressable onPress={sendClipboard} style={[styles.cardBase, styles.actionCard]}>
-        <View style={styles.iconRow}>
-          <Text style={styles.buttonText}>Send Clipboard</Text>
-          <ClipboardIcon width={28} height={28} />
-        </View>
-      </Pressable>
+      <Animated.View style={{ transform: [{ scale: clipboardScale }], width: '100%' }}>
+        <Pressable
+          onPressIn={() => animateIn(clipboardScale)}
+          onPressOut={() => animateOut(clipboardScale)}
+          onPress={sendClipboard}
+          style={[styles.cardBase, styles.actionCard]}
+        >
+          <View style={styles.iconRow}>
+            <Text style={styles.buttonText}>Send Clipboard</Text>
+            <ClipboardIcon width={28} height={28} />
+          </View>
+        </Pressable>
+      </Animated.View>
 
       {/* File */}
-      <Pressable onPress={pickAndSendFile} style={[styles.cardBase, styles.actionCard]}>
-        <View style={styles.iconRow}>
-          <Text style={styles.buttonText}>Send File</Text>
-          <Fileicon width={28} height={28} />
-        </View>
-      </Pressable>
+      <Animated.View style={{ transform: [{ scale: fileScale }], width: '100%' }}>
+        <Pressable
+          onPressIn={() => animateIn(fileScale)}
+          onPressOut={() => animateOut(fileScale)}
+          onPress={pickAndSendFile}
+          style={[styles.cardBase, styles.actionCard]}
+        >
+          <View style={styles.iconRow}>
+            <Text style={styles.buttonText}>Send File</Text>
+            <Fileicon width={28} height={28} />
+          </View>
+        </Pressable>
+      </Animated.View>
 
       {/* Message */}
-      <Pressable onPress={sendMessage} style={[styles.cardBase, styles.actionCard]}>
-        <View style={styles.iconRow}>
-          <Text style={styles.buttonText}>Send Message</Text>
-          <PlaceHolderIcon width={28} height={28} />
-        </View>
-      </Pressable>
+      <Animated.View style={{ transform: [{ scale: messageScale }], width: '100%' }}>
+        <Pressable
+          onPressIn={() => animateIn(messageScale)}
+          onPressOut={() => animateOut(messageScale)}
+          onPress={() => setModalVisible(true)}
+          style={[styles.cardBase, styles.actionCard]}
+        >
+          <View style={styles.iconRow}>
+            <Text style={styles.buttonText}>Send Message</Text>
+            <PlaceHolderIcon width={28} height={28} />
+          </View>
+        </Pressable>
+      </Animated.View>
 
-      <Text>{activeConnection?.ip}</Text>
+      {/* Modal */}
+      <Modal visible={modalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Enter a message</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Type message here..."
+              value={modalMessage}
+              onChangeText={setModalMessage}
+            />
+            <View style={styles.modalButtons}>
+              <Pressable onPress={sendModalMessage} style={styles.modalButton}>
+                <Text style={styles.modalButtonText}>Send</Text>
+              </Pressable>
+              <Pressable onPress={() => setModalVisible(false)} style={styles.modalButton}>
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-//#region Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
     paddingTop: 150,
-    backgroundColor: '#fff',
+    backgroundColor: '#242424',
     alignItems: 'center',
     fontFamily: 'poppins-regular',
   },
@@ -268,6 +323,8 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     backgroundColor: '#4C4C4C',
+    borderColor: '000',
+    borderWidth: 1.5,
   },
   iconRow: {
     flexDirection: 'row',
@@ -287,5 +344,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 6,
+    padding: 10,
+    marginBottom: 15,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  modalButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    backgroundColor: '#4C4C4C',
+    borderRadius: 6,
+  },
+  modalButtonText: {
+    color: '#fff',
+  },
 });
-//#endregion

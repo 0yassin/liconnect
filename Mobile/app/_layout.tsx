@@ -4,11 +4,13 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import 'react-native-get-random-values'; // 👈 must be first!
+import 'react-native-get-random-values';
 import 'react-native-reanimated';
+import { ToastProvider } from 'react-native-toast-notifications'
+
 
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { ConnectionProvider } from '../app/(tabs)/test'; // path to the file above
+import { ConnectionProvider } from '../app/(tabs)/scan';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -24,6 +26,7 @@ const [loaded] = useFonts({
   }
 
   return (
+    <ToastProvider>
     <ConnectionProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
@@ -33,5 +36,6 @@ const [loaded] = useFonts({
         <StatusBar style="auto" />
       </ThemeProvider>
     </ConnectionProvider>
+    </ToastProvider>
   );
 }

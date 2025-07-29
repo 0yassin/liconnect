@@ -5,6 +5,7 @@ import {
   Button,
   Modal,
   Platform,
+  Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
@@ -13,6 +14,13 @@ import {
   View,
 } from 'react-native';
 import { io, Socket } from 'socket.io-client';
+import { useToast } from 'react-native-toast-notifications';
+import { router } from 'expo-router';
+import { Animated } from 'react-native';
+import { useRef } from 'react';
+import Qricon from '../../assets/images/qrcode.tsx';
+
+
 
 // ---- Connection Types and Context ----
 type ActiveConnection = {
@@ -38,6 +46,7 @@ export const useConnection = () => {
 };
 
 export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const toast = useToast()
   const [activeConnection, setActiveConnection] = useState<ActiveConnection | null>(null);
 
   const connectToSocket = (name: string, ip: string, port: string, authToken: string) => {
@@ -45,26 +54,30 @@ export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     try {
       const socket = io(`http://${ip}:${port}?token=${authToken}`, {
-        transports: ['websocket'],
+          transports: ["websocket"],  
+          reconnection: true,
+          reconnectionAttempts: Infinity,
+          reconnectionDelay: 1000,
       });
 
       socket.on('connect', () => {
-        Alert.alert('Connected', `Socket connected to ${ip}:${port}`);
         setActiveConnection({ name, ip, port, authToken, socket });
       });
 
       socket.on('connect_error', (err) => {
         console.log(err);
-        Alert.alert('Connection Error', err.message);
+        toast.show(`Connection Error ${err.message}`, {type:'danger'})
+
         socket.disconnect();
       });
 
       socket.on('disconnect', () => {
-        Alert.alert('Disconnected', 'Socket disconnected');
+      toast.show(`socket disconnected`, {type:'danger'})
         setActiveConnection(null);
       });
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to connect');
+      toast.show(`${err.message}`, {type:'danger'})
+
     }
   };
 
@@ -82,6 +95,24 @@ export const ConnectionProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
 // ---- Main Page Component ----
 export default function ConnectionPage() {
+    const scale = useRef(new Animated.Value(1)).current;
+
+  const animateIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.96,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const animateOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      friction: 3,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const toast = useToast()
   const { activeConnection, connectToSocket, disconnect } = useConnection();
   const [ip, setIp] = useState('');
   const [port, setPort] = useState('');
@@ -99,34 +130,40 @@ export default function ConnectionPage() {
   }, []);
 
   const handleQRCodeScanned = (result: BarcodeScanningResult) => {
-    if (!result?.data) return;
+  if (!result?.data) return;
 
-    setScanning(false);
+  setScanning(false);
 
-    try {
-      const parsed = JSON.parse(result.data);
-      const { name, ip, port, authToken } = parsed;
+  try {
+    const parsed = JSON.parse(result.data);
+    const { name, ip, port, authToken } = parsed;
 
-      if (!name || !ip || !port || !authToken) {
-        throw new Error('Missing one or more fields');
-      }
-
-      setName(name);
-      setIp(ip);
-      setPort(String(port));
-      setAuthToken(authToken);
-
-      Alert.alert('QR Code Scanned', 'Connection details loaded.');
-    } catch (err) {
-      Alert.alert('Scan Error', 'Invalid or malformed QR code');
-      console.log(err)
-      console.log(result.data)
+    if (!name || !ip || !port || !authToken) {
+      throw new Error('Missing one or more fields');
     }
-  };
+
+    setName(name);
+    setIp(ip);
+    setPort(String(port));
+    setAuthToken(authToken);
+
+    toast.show(`QR code scanned`, { type: 'success' });
+    router.push('/main')
+
+    connectToSocket(name.trim(), ip.trim(), String(port).trim(), authToken.trim());
+  } catch (err) {
+    toast.show(`error scanning qr code ${err}`)
+    console.log(err);
+    console.log(result.data);
+  }
+};
+
 
   const handleConnect = () => {
     if (!ip || !port) {
-      Alert.alert('Error', 'Please enter IP and port');
+      toast.show(`Please enter details first`, {type:'warning'})
+      toast.show(ip , {type:'warning'})
+
       return;
     }
     connectToSocket(name.trim(), ip.trim(), port.trim(), authToken.trim());
@@ -134,49 +171,42 @@ export default function ConnectionPage() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {Platform.OS === 'android' && <StatusBar hidden />}
-      <Text style={styles.heading}>Connect to Socket Server</Text>
-
-      <TextInput
-        placeholder="IP Address"
-        style={styles.input}
-        value={ip}
-        onChangeText={setIp}
-        autoCapitalize="none"
-        keyboardType="numeric"
-        placeholderTextColor="#888"
-      />
-      <TextInput
-        placeholder="Port"
-        style={styles.input}
-        value={port}
-        onChangeText={setPort}
-        keyboardType="numeric"
-        placeholderTextColor="#888"
-      />
-      <TextInput
-        placeholder="Auth Token"
-        style={styles.input}
-        value={authToken}
-        onChangeText={setAuthToken}
-        autoCapitalize="none"
-        placeholderTextColor="#888"
-      />
-      <TextInput
-        placeholder="Name"
-        style={styles.input}
-        value={name}
-        onChangeText={setName}
-        autoCapitalize="none"
-        placeholderTextColor="#888"
-      />
-
-      <Button
-        title={activeConnection ? 'Disconnect' : 'Connect'}
-        onPress={activeConnection ? disconnect : handleConnect}
-      />
       <View style={{ height: 12 }} />
-      <Button title="Scan QR Code" onPress={() => setScanning(true)} />
+          <Animated.View style={{ transform: [{ scale }], width: '100%' }}>
+            <Pressable
+              onPressIn={animateIn}
+              onPressOut={animateOut}
+              onPress={() => setScanning(true)}
+              style={{
+                backgroundColor: '#4d4d4d',
+                borderWidth:2,
+                
+                paddingVertical: 14,
+                paddingHorizontal: 18,
+                borderRadius: 16,
+                marginBottom: 16,
+                width: '100%',
+                padding: 16,
+                height: 112,
+                justifyContent: 'center',
+                
+              }}
+            >
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', height: '100%', paddingHorizontal: 8, }}>
+
+                  <Text style={{
+                    color: '#fff',
+                    fontSize: 18,
+                    fontFamily: 'poppins-500', }}>
+
+                    Scan QR Code
+                  </Text>
+                  <Qricon></Qricon>
+
+
+              </View>
+            </Pressable>
+          </Animated.View>
 
       {activeConnection && (
         <View style={styles.infoBox}>
@@ -199,7 +229,36 @@ export default function ConnectionPage() {
               onBarcodeScanned={handleQRCodeScanned}
             />
           )}
-          <Button title="Cancel" onPress={() => setScanning(false)} />
+                    <Animated.View style={{ transform: [{ scale }], width: '100%' }}>
+            <Pressable
+              onPressIn={animateIn}
+              onPressOut={animateOut}
+              onPress={() => setScanning(false)}
+              style={{
+                backgroundColor: '#4d4d4d',
+                borderWidth:2,
+                borderRadius: 16,
+                width: 172,
+                padding: 16,
+                height: 64,
+                justifyContent: 'center',
+                margin:'auto',
+                alignItems:'center',
+                
+              }}
+            >
+                  <Text style={{
+                    color: '#fff',
+                    fontSize: 18,
+                    fontFamily: 'poppins-500', }}>
+
+                    Cancel
+                  </Text>
+
+
+            </Pressable>
+          </Animated.View>
+
         </View>
       </Modal>
     </SafeAreaView>
@@ -212,7 +271,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#242424',
   },
   heading: {
     fontSize: 22,
@@ -241,12 +300,14 @@ const styles = StyleSheet.create({
   },
   scannerContainer: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#242424',
     justifyContent: 'center',
     alignItems: 'center',
   },
   camera: {
     width: 300,
     height: 300,
+    borderRadius: 35,
+    marginBottom: 16,
   },
 });
